@@ -1,0 +1,86 @@
+// それっぽいスクリプト
+
+
+http = new HTTP;
+http.timeout = 30;
+
+//var url = 'http://atura.jp/bbs/AtuGlst?bbsid=huriru5';
+var baseUrl = 'http://atura.jp/bbs/AtuGlst?bbsid=huriru5&offset=';
+
+var msg = new Strings;
+var timer = Win32.getTickCount();
+
+function getTitleImage(url, title) {
+	var rep = new RegExp('/', 'igm');
+	title = rep.replace(title, '_');
+	var savePath = 'D:\tmp\hboard\' + title + '.jpg';
+
+	var f = new File(savePath);
+	if( f.exists() ) {
+		println('skip.');
+		return;
+	}
+
+	var s = http.get(url);
+//	var r = new RegExp('http://[a-z0-9]+\.atura\.ws/[a-z0-9/]+\.jpg.*', "im");
+	var r = new RegExp('http://[a-z0-9]+\.atura\.ws/[a-z0-9]+/[a-z0-9]+/[a-z0-9]+/img/[a-z0-9]+\.jpg\?a=[a-z0-9]+', "im");
+	var links = r.exec(s);
+
+//	var p = new HtmlParser;
+//	p.parse(s);
+//	for(i in p) {
+//		println('[' + p[i] + ']');
+//		for(j in p[i]) {
+//			println(j + ': ' + p[i][j]);
+//		}
+//	}
+
+	try {
+		http.getFile(links[0], savePath);
+	}
+	catch(e) {
+		println('error: ' + links[0] + ' -> ' + savePath);
+	}
+}
+
+for(var offset = 0; offset < 3000; offset+=5) {
+	var url = baseUrl + offset;
+
+	var s = http.get(url);
+	var sep = new RegExp("\n", "igm");
+	
+	var r = new RegExp("<a href='http:[^\n]*'>[^\n]*<br>\n[^\n]*<br>", "igm");
+	var links = r.exec(s);
+	
+	for(var link in links) {
+		var p = new HtmlParser;
+		p.parse(links[link]);
+	
+	//	println(links[link]);
+	
+		var splitText = sep.split(p.text, 64);
+		println(splitText[0] + ' - ' + splitText[2]);
+	//	for(i in splitText) {
+	//		if(splitText[i] != '') {
+	//			println('text' + link + '-' + i + ': ' + splitText[i]);
+	//		}
+	//	}
+		println('[' + p[0]['href'] +']');
+	//	for(i in p) {
+	//		println('link' + link + '-' + i + ': ' + p[i]['href']);
+	//	}
+
+		try {
+			getTitleImage(p[0]['href'], splitText[2]);
+		}
+		catch(e) {
+			println('error: ' + e);
+		}
+	}
+
+	while(Win32.getTickCount() - timer < 4000) {
+		doEvents();
+	}
+
+	timer = Win32.getTickCount();
+}

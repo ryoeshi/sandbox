@@ -1,0 +1,247 @@
+/*  基本設定 */
+
+// proxy
+//var proxy = '172.17.1.91:8080';
+var proxy = '';
+// ファイル保存ディレクトリ
+var saveDir = 'D:\mydoc\Downloaded Files\同人誌\'; //'
+// 結合スクリプトパス
+var conImagePath = 'D:\bin\scripts\undiv.bat';
+
+/* ---------*/
+
+if( Global.isUndefined(Global.arguments[0]) ) {
+	println('URL がない。');
+	sleep(1000);
+	return ;
+}
+
+// サムネイル一覧画面のURL
+var u = new URL(Global.arguments[0]);
+println(u.url + ' - start.');
+// wait
+var timewait = 1 * 100;
+
+// 関数共通
+var altReg = new RegExp('.*\.(zip)|(rar)|(lzh)');
+var title = new String;
+var pading = '000';
+
+// サムネイル画像一覧ページのURLを取得
+function getTargetURLs(u) {
+	var http = new HTTP;
+	var html = new HtmlParser;
+	var h = new URL('http://chinkoup.net:8094/cash');
+	var r = new RegExp(h.hostname + '.*/cash/');
+
+	//http.debug = true;
+	http.proxy = proxy;
+
+	// 取得
+	var dat = http.get(u.url);
+	// htmlをパース
+	html.parse(dat);
+
+	// 取得対象のURLを配列に入れる
+	var a = new Array;
+	for (var i in html) {
+		var tag = html[i];
+		for (var key in tag) {
+			// グローバル変数にタイトルを設定
+			if(tag.hasKey('alt') && altReg.test(tag['alt'])) {
+				title = tag['alt'].fromEUCtoSJIS();
+			}
+			if (tag['name'] == 'a' && key == 'href') {
+				if(r.test(tag[key])) {
+//					println('Add to [' + tag[key] + ']');
+					a.add(tag[key]);
+				}
+			}
+		}
+	}
+
+	return a;
+}
+
+// ページを表示したときの画像のURLを取得
+function getImageURLs(u) {
+	var http = new HTTP;
+	var html = new HtmlParser;
+
+	//http.debug = true;
+	http.proxy = proxy;
+
+	// 取得
+	var dat = http.get(u.url);
+	// htmlをパース
+	html.parse(dat);
+
+	// 取得対象のURLを配列に入れる
+	var a = new Array;
+	for (var i in html) {
+		var tag = html[i];
+		for (var key in tag) {
+			if (tag['name'] == 'img' && key == 'src') {
+				if(tag.hasKey('alt') && altReg.test(tag['alt'])) {
+//					println('Add to [' + tag[key].fromEUCtoSJIS() + ']');
+					a.add(tag[key]);
+				}
+			}
+		}
+	}
+
+	return a;
+}
+
+// 処理対象のURLを保存
+function writeLogFile(d, s) {
+	var f = new File(d + 'log.txt');
+	try{
+		f.open('w');				// 書き込みモードで開く
+		f.seek(f.length);			// 末尾にシーク
+		f.writeln(s);
+	}
+	catch(e) {
+		println('log write error.');
+	}
+	finally{
+		f.close();
+	}
+}
+
+// 処理中のファイルの途中経過を書き込む
+function writeResumeFile(d, a) {
+	var f = new File(d + 'temp.txt');
+	try{
+		f.open('w');				// 書き込みモードで開く
+		f.seek(f.length);			// 末尾にシーク
+		f.writeln(a[0]);
+		f.writeln(a[1]);
+	}
+	catch(e) {
+		println('write error.');
+	}
+	finally{
+		f.close();
+	}
+}
+
+// 途中のファイルがあれば読み込む
+function readResumeFile(d) {
+	var o = new Object;
+	var i = 0;
+	var f = new File(d + 'temp.txt');
+	try{
+		f.open('r');				// 読み込みモードで開く
+		for(i = 0; !f.eof(); i++) {
+			var a = new Array;
+			a.add( f.readln() );
+			a.add( f.readln() );
+			o[i] = a;
+		}
+		println('resume file read. - ' + i);
+	}
+	catch(e) {
+//		println('resume file not found.');
+	}
+	finally{
+		f.close();
+	}
+
+	return new Array(o, i);
+}
+
+// 画像を含むURLを取得
+var urls = getTargetURLs(u);
+println(title);
+println('url(html) got. - [' + urls.length + ']');
+
+// ディレクトリをとっとと作成
+var d = new Directory(Directory.includePathDelimiter(saveDir) + title);
+if( !d.exists() ) {
+	// なければ作る
+	d.make();
+}
+
+// 処理対象URLをメモ
+writeLogFile(d, 'download -> ' + u.url);
+
+var done = false;
+while(!done) {
+	var f = null;
+	try {
+		// リジュームする
+		var readArray = readResumeFile(d.path);
+		var images = readArray[0];
+		var tmp = readArray[1];
+		for (var i = tmp; i < urls.length; i++) {
+			Global.sleep(timewait);
+			
+			// 画像のURLを取得
+			var image = new URL(urls[i]);
+			images[i] = getImageURLs(image);
+			// 途中経過をファイルに保存
+			writeResumeFile(d.path, images[i]);
+		
+			println( (i+1) + ' / ' + urls.length);
+		}
+		println('url(image) got.');
+
+		// 0詰め用文字列生成
+		for (var i = pading.length; i < urls.length.toString().length; i++) {
+			pading += '0';
+		}
+		
+		// 画像を順番にフォルダに分けてダウンロード
+		for (var i = 0; i < urls.length; i++) {
+		//for (var i in images) {
+			var sIndex = (pading+i).substr(i.toString().length);
+			if( File.exists(d.path + sIndex + '.jpg') ) {
+				continue;
+			}
+
+			Global.sleep(timewait);
+			var di = new Directory(d.path + sIndex);
+			if( !di.exists() ) {
+				// 無ければ作る
+				di.make();
+			}
+			
+			var http = new HTTP;
+			http.proxy = proxy;
+
+			// ファイルを取得
+			f = new File(di.path + '00.jpg');
+			if( !f.exists() ) {
+				http.getFile(images[i][0], f.filename);
+			}
+			f = new File(di.path + '01.jpg');
+			if( !f.exists() ) {
+				http.getFile(images[i][1], f.filename);
+			}
+			// 正常終了時様に初期化しとく。
+			f = new File('');
+		
+			println('download. - ' + sIndex + ' [' + (i+1) + '/' + urls.length + ']');
+		}
+		done = true;
+	}
+	catch(e) {
+		if( f.exists() ) {
+			f.remove();
+		}
+		println('error: ' + e);
+		writeLogFile(d, 'error: ' + e);
+	}
+	finally {
+		;
+	}
+}
+
+// リジュームファイルを削除
+//var f = new File(d.path + 'temp.txt');
+//f.remove();
+
+// imagemagick で結合
+//println(conImagePath + ' "' + d.excludePathDelimiter() + '"');
+Win32.shellExecute('open', conImagePath, '"' + d.excludePathDelimiter() + '"');
